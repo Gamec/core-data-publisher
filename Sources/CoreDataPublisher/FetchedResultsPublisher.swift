@@ -2,8 +2,8 @@ import Combine
 import CoreData
 
 struct FetchedResultsPublisher<Entity: NSManagedObject>: Publisher {
-    public typealias Output = [Entity]
-    public typealias Failure = Error
+    typealias Output = [Entity]
+    typealias Failure = Error
 
     private let request: NSFetchRequest<Entity>
     private let context: NSManagedObjectContext

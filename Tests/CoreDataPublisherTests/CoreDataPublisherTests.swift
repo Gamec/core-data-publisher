@@ -1,5 +1,5 @@
-import XCTest
 @testable import CoreDataPublisher
+import XCTest
 
 final class CoreDataPublisherTests: XCTestCase {
     func testExample() throws {

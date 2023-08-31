@@ -9,12 +9,6 @@ final class FetchedResultsSubscription<SubscriberType: Subscriber, Entity: NSMan
     private var managedObjectContext: NSManagedObjectContext?
     private var fetchedResultsController: NSFetchedResultsController<Entity>?
 
-    private var entities = [Entity]() {
-        didSet {
-            _ = subscriber?.receive(entities)
-        }
-    }
-
     init(subscriber: SubscriberType, fetchRequest: NSFetchRequest<Entity>, managedObjectContext: NSManagedObjectContext) {
         self.managedObjectContext = managedObjectContext
         self.fetchRequest = fetchRequest
@@ -26,7 +20,9 @@ final class FetchedResultsSubscription<SubscriberType: Subscriber, Entity: NSMan
     }
 
     func request(_: Subscribers.Demand) {
-        _ = subscriber?.receive(entities)
+        if let entities = fetchedResultsController?.fetchedObjects {
+            _ = subscriber?.receive(entities)
+        }
     }
 
     func cancel() {
@@ -34,7 +30,6 @@ final class FetchedResultsSubscription<SubscriberType: Subscriber, Entity: NSMan
         fetchedResultsController = nil
         managedObjectContext = nil
         subscriber = nil
-        entities = []
     }
 
     private func createFetchedResultsController() {
@@ -54,8 +49,8 @@ final class FetchedResultsSubscription<SubscriberType: Subscriber, Entity: NSMan
 
         do {
             try fetchedResultsController.performFetch()
-            if let objects = fetchedResultsController.fetchedObjects {
-                entities = objects
+            if let entities = fetchedResultsController.fetchedObjects {
+                _ = subscriber?.receive(entities)
             }
         } catch {
             assertionFailure(error.localizedDescription)
@@ -65,8 +60,8 @@ final class FetchedResultsSubscription<SubscriberType: Subscriber, Entity: NSMan
     // MARK: NSFetchedResultsControllerDelegate
 
     func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
-        if let objects = controller.fetchedObjects as? [Entity] {
-            entities = objects
+        if let entities = controller.fetchedObjects as? [Entity] {
+            _ = subscriber?.receive(entities)
         }
     }
 }

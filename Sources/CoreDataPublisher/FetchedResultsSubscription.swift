@@ -21,7 +21,7 @@ final class FetchedResultsSubscription<SubscriberType: Subscriber, Entity: NSMan
 
     func request(_: Subscribers.Demand) {
         if let entities = fetchedResultsController?.fetchedObjects {
-            managedObjectContext.performAndWait {
+            managedObjectContext?.performAndWait {
                 _ = subscriber?.receive(entities)
             }
         }

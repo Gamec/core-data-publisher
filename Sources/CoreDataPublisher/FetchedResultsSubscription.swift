@@ -20,8 +20,10 @@ final class FetchedResultsSubscription<SubscriberType: Subscriber, Entity: NSMan
     }
 
     func request(_: Subscribers.Demand) {
-        if let entities = fetchedResultsController?.fetchedObjects {
-            _ = subscriber?.receive(entities)
+        managedObjectContext?.performAndWait {
+            if let entities = fetchedResultsController?.fetchedObjects {
+                _ = subscriber?.receive(entities)
+            }
         }
     }
 
@@ -47,13 +49,15 @@ final class FetchedResultsSubscription<SubscriberType: Subscriber, Entity: NSMan
         fetchedResultsController.delegate = self
         self.fetchedResultsController = fetchedResultsController
 
-        do {
-            try fetchedResultsController.performFetch()
-            if let entities = fetchedResultsController.fetchedObjects {
-                _ = subscriber?.receive(entities)
+        managedObjectContext.performAndWait {
+            do {
+                try fetchedResultsController.performFetch()
+                if let entities = fetchedResultsController.fetchedObjects {
+                    _ = subscriber?.receive(entities)
+                }
+            } catch {
+                assertionFailure(error.localizedDescription)
             }
-        } catch {
-            assertionFailure(error.localizedDescription)
         }
     }
 

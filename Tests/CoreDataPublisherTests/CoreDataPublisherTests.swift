@@ -6,6 +6,10 @@ import XCTest
 final class CoreDataPublisherTests: XCTestCase {
     private var container: NSPersistentContainer!
 
+    private var context: NSManagedObjectContext {
+        container.viewContext
+    }
+
     override func setUpWithError() throws {
         let entity = NSEntityDescription()
         entity.name = "Item"
@@ -27,17 +31,8 @@ final class CoreDataPublisherTests: XCTestCase {
         if let loadError { throw loadError }
     }
 
-    private func itemsRequest() -> NSFetchRequest<NSManagedObject> {
-        let request = NSFetchRequest<NSManagedObject>(entityName: "Item")
-        request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
-        return request
-    }
-
     func testDroppedDuplicateDoesNotReEmitForever() throws {
-        let context = container.viewContext
-        let item = NSManagedObject(entity: container.managedObjectModel.entitiesByName["Item"]!, insertInto: context)
-        item.setValue("A", forKey: "name")
-        try context.save()
+        let item = try insertItem(named: "A")
 
         var emissions = 0
         let cancellable = context.publisher(for: itemsRequest())
@@ -59,7 +54,6 @@ final class CoreDataPublisherTests: XCTestCase {
     }
 
     func testEmitsWhenFetchedObjectsChange() throws {
-        let context = container.viewContext
         var counts: [Int] = []
         let cancellable = context.publisher(for: itemsRequest())
             .receive(on: DispatchQueue.main)
@@ -68,11 +62,76 @@ final class CoreDataPublisherTests: XCTestCase {
             .sink { counts.append($0) }
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
 
-        _ = NSManagedObject(entity: container.managedObjectModel.entitiesByName["Item"]!, insertInto: context)
-        try context.save()
+        try insertItem(named: "A")
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         cancellable.cancel()
 
         XCTAssertEqual(counts, [0, 1])
     }
+
+    func testChangeWithoutDemandIsDeliveredOnNextRequest() throws {
+        let subscriber = ManualDemandSubscriber()
+        context.publisher(for: itemsRequest()).subscribe(subscriber)
+
+        subscriber.request(1)
+        try insertItem(named: "A")
+        try insertItem(named: "B")
+        XCTAssertEqual(subscriber.counts, [0], "a change with no outstanding demand must wait for the next request")
+
+        subscriber.request(1)
+        XCTAssertEqual(subscriber.counts, [0, 2], "the next request gets the latest objects once")
+
+        subscriber.request(1)
+        XCTAssertEqual(subscriber.counts, [0, 2], "a request with nothing new to send must not re-send")
+    }
+
+    @MainActor
+    func testValuesSequenceSurvivesChangesBetweenIterations() async throws {
+        var counts: [Int] = []
+        for await items in context.publisher(for: itemsRequest()).values {
+            counts.append(items.count)
+            if items.count >= 4 { break }
+            try insertItem(named: "\(items.count)")
+            try insertItem(named: "\(items.count)-extra")
+        }
+
+        XCTAssertEqual(counts, [0, 2, 4], "both saves made during an iteration arrive together on the next one")
+    }
+
+    private func itemsRequest() -> NSFetchRequest<NSManagedObject> {
+        let request = NSFetchRequest<NSManagedObject>(entityName: "Item")
+        request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+        return request
+    }
+
+    @discardableResult
+    private func insertItem(named name: String) throws -> NSManagedObject {
+        let item = NSManagedObject(entity: container.managedObjectModel.entitiesByName["Item"]!, insertInto: context)
+        item.setValue(name, forKey: "name")
+        try context.save()
+        return item
+    }
+}
+
+private final class ManualDemandSubscriber: Subscriber {
+    typealias Input = [NSManagedObject]
+    typealias Failure = Never
+
+    private(set) var counts: [Int] = []
+    private var subscription: Subscription?
+
+    func request(_ count: Int) {
+        subscription?.request(.max(count))
+    }
+
+    func receive(subscription: Subscription) {
+        self.subscription = subscription
+    }
+
+    func receive(_ input: [NSManagedObject]) -> Subscribers.Demand {
+        counts.append(input.count)
+        return .none
+    }
+
+    func receive(completion _: Subscribers.Completion<Never>) {}
 }

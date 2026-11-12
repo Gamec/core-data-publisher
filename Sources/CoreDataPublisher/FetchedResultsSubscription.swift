@@ -8,6 +8,7 @@ final class FetchedResultsSubscription<SubscriberType: Subscriber, Entity: NSMan
     private var subscriber: SubscriberType?
     private var managedObjectContext: NSManagedObjectContext?
     private var fetchedResultsController: NSFetchedResultsController<Entity>?
+    private var didSendOnRequest = false
 
     init(subscriber: SubscriberType, fetchRequest: NSFetchRequest<Entity>, managedObjectContext: NSManagedObjectContext) {
         self.managedObjectContext = managedObjectContext
@@ -19,8 +20,12 @@ final class FetchedResultsSubscription<SubscriberType: Subscriber, Entity: NSMan
         createFetchedResultsController()
     }
 
+    /// Sends the current objects on the first request only: `receive(on:)` forwards demand returned by
+    /// operators that drop a value (`removeDuplicates`, `filter`), so re-sending here would loop forever.
     func request(_: Subscribers.Demand) {
         managedObjectContext?.performAndWait {
+            guard !didSendOnRequest else { return }
+            didSendOnRequest = true
             if let entities = fetchedResultsController?.fetchedObjects {
                 _ = subscriber?.receive(entities)
             }
